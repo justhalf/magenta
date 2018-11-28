@@ -453,7 +453,8 @@ def provide_batch(batch_size,
                   examples,
                   hparams,
                   truncated_length=0,
-                  is_training=True):
+                  is_training=True,
+                  mode='train'):
   """Returns batches of tensors read from TFRecord files.
 
   Args:

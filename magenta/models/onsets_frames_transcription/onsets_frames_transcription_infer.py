@@ -242,6 +242,12 @@ def model_inference(acoustic_checkpoint, hparams, examples_path, run_dir):
                   frames_per_second=data.hparams_frames_per_second(
                       hparams)))
 
+        posteriogram_output_file = os.path.join(run_dir,
+                                             filename + '_posteriogram.npz')
+        tf.logging.info('Writing acoustic logit file to %s',
+                        posteriogram_output_file)
+        np.save(posteriogram_output_file, np.array(logits))
+
         summary_writer.flush()
 
 

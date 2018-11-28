@@ -31,14 +31,15 @@ import tensorflow.contrib.slim as slim
 from magenta.music.sequences_lib import pianoroll_to_note_sequence
 
 
-def _get_data(examples_path, hparams, is_training):
+def _get_data(examples_path, hparams, is_training, mode='train'):
   hparams_dict = hparams.values()
   batch, _ = data.provide_batch(
       hparams.batch_size,
       examples=examples_path,
       hparams=hparams,
       truncated_length=hparams_dict.get('truncated_length', None),
-      is_training=is_training)
+      is_training=is_training,
+      mode=mode)
   return batch
 
 
@@ -75,16 +76,24 @@ def train(train_dir,
           hparams,
           checkpoints_to_keep=5,
           keep_checkpoint_every_n_hours=1,
-          num_steps=None):
+          num_steps=None,
+          mode='train'):
   """Train loop."""
   tf.gfile.MakeDirs(train_dir)
 
   _trial_summary(hparams, examples_path, train_dir)
+  # device_t = '/gpu:1'
+  # g = tf.Graph()
+  # with g.as_default(), g.device(device_t):
   with tf.Graph().as_default():
-    transcription_data = _get_data(examples_path, hparams, is_training=True)
+    transcription_data = _get_data(examples_path, hparams, is_training=True, mode=mode)
 
-    loss, losses, unused_labels, unused_predictions, images = model.get_model(
-        transcription_data, hparams, is_training=True)
+    if mode == 'train':
+        loss, losses, unused_labels, unused_predictions, images = model.get_model(
+            transcription_data, hparams, is_training=True)
+    elif mode == 'train_missing':
+        loss, losses, unused_labels, unused_predictions, images = model.get_model_missing(
+            transcription_data, hparams, is_training=True)
 
     tf.summary.scalar('loss', loss)
     for label, loss_collection in losses.iteritems():

@@ -175,7 +175,8 @@ def model_inference(acoustic_checkpoint, hparams, examples_path, run_dir):
             frames_per_second=data.hparams_frames_per_second(hparams),
             min_duration_ms=FLAGS.min_note_duration_ms,
             onset_predictions=onset_predictions,
-            velocity_values=velocity_values)
+            velocity_values=velocity_values,
+            min_midi_pitch=constants.MIN_MIDI_PITCH)
 
         end_time = time.time()
         infer_time = end_time - start_time

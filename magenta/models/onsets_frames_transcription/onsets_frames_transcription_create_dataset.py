@@ -45,11 +45,29 @@ tf.app.flags.DEFINE_string('output_dir', './',
 tf.app.flags.DEFINE_integer('min_length', 5, 'minimum segment length')
 tf.app.flags.DEFINE_integer('max_length', 20, 'maximum segment length')
 tf.app.flags.DEFINE_integer('sample_rate', 16000, 'desired sample rate')
+tf.app.flags.DEFINE_string('mode', 'standard',
+                           'Whether to create standard dataset or resynth dataset')
+tf.app.flags.DEFINE_string('resynth_mid_suffix', '_removed',
+                           'The suffix to be found at the end of training resynth midi files')
+tf.app.flags.DEFINE_string('resynth_wav_suffix', '_removed_125',
+                           'The suffix to be found at the end of training resynth WAV files')
+
 
 test_dirs = ['ENSTDkCl/MUS', 'ENSTDkAm/MUS']
+# test_dirs = ['ENSTDkCl/MUS']
 train_dirs = ['AkPnBcht/MUS', 'AkPnBsdf/MUS', 'AkPnCGdD/MUS', 'AkPnStgb/MUS',
-              'SptkBGAm/MUS', 'SptkBGCl/MUS', 'StbgTGd2/MUS']
+	      'SptkBGAm/MUS', 'SptkBGCl/MUS', 'StbgTGd2/MUS']
+# train_dirs = ['AkPnBcht/MUS']
+test_resynth_dirs = ['ENSTDkCl', 'ENSTDkAm']
+train_resynth_dirs = ['AkPnBcht', 'AkPnBsdf', 'AkPnCGdD', 'AkPnStgb',
+	   	      'SptkBGAm', 'SptkBGCl', 'StbgTGd2']
+MAPS_DIRS = set(train_resynth_dirs + test_resynth_dirs)
 
+def get_MAPS_dirname(filename):
+    for token in filename.split('_')[2:]:
+	if token in MAPS_DIRS:
+	    return token
+    raise ValueError('The given filename {} does not contain MAPS dirname'.format(filename))
 
 def _find_inactive_ranges(note_sequence):
   """Returns ranges where no notes are active in the note_sequence."""
@@ -348,10 +366,165 @@ def generate_test_set():
 
   return [filename_to_id(wav) for wav, _ in test_file_pairs]
 
+def generate_train_set_resynth(exclude_ids):
+  """Generate the train TFRecord."""
+  train_file_quads = []
+  # For training there are four files:
+  # MAPS_MUS-ty_mai_SptkBGAm.mid
+  # MAPS_MUS-ty_mai_SptkBGAm_removed.mid
+  # MAPS_MUS-ty_mai_SptkBGAm.wav
+  # MAPS_MUS-ty_mai_SptkBGAm_removed_125.wav
+  path = os.path.join(FLAGS.input_dir, '*{}.mid'.format(FLAGS.resynth_mid_suffix))
+  mid_files = glob.glob(path)
+  # find matching wav files
+  for resynth_mid_file in mid_files:
+    # base_name_root is absolute path
+    base_name_root, _ = os.path.splitext(resynth_mid_file)
+    if base_name_root.split('_')[-1] not in MAPS_DIRS:
+      continue
+    orig_mid_file = '{}.mid'.format(base_name_root)
+    resynth_wav_file = '{}{}.wav'.format(base_name_root, FLAGS.resynth_wav_suffix)
+    orig_wav_file = '{}.wav'.format(base_name_root)
+    if get_MAPS_dirname(orig_mid_file) not in exclude_ids:
+      train_file_quads.append((orig_wav_file, resynth_wav_file,
+	                       orig_mid_file, resynth_mid_file))
+
+  train_output_name = os.path.join(FLAGS.output_dir,
+                                   'maps_config2_train_resynth.tfrecord')
+
+  with tf.python_io.TFRecordWriter(train_output_name) as writer:
+    for quad in train_file_quads:
+      print(quad)
+      # load the orig wav data
+      orig_wav_data = tf.gfile.Open(quad[0], 'rb').read()
+      orig_samples = audio_io.wav_data_to_samples(orig_wav_data, FLAGS.sample_rate)
+      orig_samples = librosa.util.normalize(orig_samples, norm=np.inf)
+      # load the resynth wav data
+      resynth_wav_data = tf.gfile.Open(quad[1], 'rb').read()
+      resynth_samples = audio_io.wav_data_to_samples(resynth_wav_data, FLAGS.sample_rate)
+      resynth_samples = librosa.util.normalize(resynth_samples, norm=np.inf)
+
+      # load the midi data and convert to a notesequence
+      orig_ns = midi_io.midi_file_to_note_sequence(quad[2])
+      resynth_ns = midi_io.midi_file_to_note_sequence(quad[3])
+
+      splits = find_split_points(ns, orig_samples, FLAGS.sample_rate,
+                                 FLAGS.min_length, FLAGS.max_length)
+
+      orig_velocities = [note.velocity for note in ns.notes]
+      velocity_max = np.max(orig_velocities)
+      velocity_min = np.min(orig_velocities)
+      new_velocity_tuple = music_pb2.VelocityRange(
+          min=velocity_min, max=velocity_max)
+
+      for start, end in zip(splits[:-1], splits[1:]):
+        if end - start < FLAGS.min_length:
+          continue
+
+        new_orig_ns = sequences_lib.extract_subsequence(orig_ns, start, end)
+        new_orig_wav_data = audio_io.crop_wav_data(orig_wav_data, FLAGS.sample_rate,
+                                              start, end - start)
+        new_resynth_ns = sequences_lib.extract_subsequence(resynth_ns, start, end)
+        new_resynth_wav_data = audio_io.crop_wav_data(resynth_wav_data, FLAGS.sample_rate,
+                                              start, end - start)
+        example = tf.train.Example(features=tf.train.Features(feature={
+            'id':
+            tf.train.Feature(bytes_list=tf.train.BytesList(
+                value=[quad[0]]
+                )),
+            'orig_sequence':
+            tf.train.Feature(bytes_list=tf.train.BytesList(
+                value=[new_orig_ns.SerializeToString()]
+                )),
+            'resynth_sequence':
+            tf.train.Feature(bytes_list=tf.train.BytesList(
+                value=[new_resynth_ns.SerializeToString()]
+                )),
+            'orig_audio':
+            tf.train.Feature(bytes_list=tf.train.BytesList(
+                value=[new_orig_wav_data]
+                )),
+            'resynth_audio':
+            tf.train.Feature(bytes_list=tf.train.BytesList(
+                value=[new_resynth_wav_data]
+                )),
+            'velocity_range':
+            tf.train.Feature(bytes_list=tf.train.BytesList(
+                value=[new_velocity_tuple.SerializeToString()]
+                )),
+            }))
+        writer.write(example.SerializeToString())
+
+
+def generate_test_set_resynth():
+  """Generate the test TFRecord for resynth dataset."""
+  test_file_triples = []
+  for directory in test_dirs:
+    path = os.path.join(FLAGS.input_dir, directory)
+    path = os.path.join(path, '*.mid')
+    mid_files = glob.glob(path)
+    # find matching wav files
+    for mid_file in mid_files:
+      base_name_root, _ = os.path.splitext(mid_file)
+      wav_file = base_name_root + '.wav'
+      wav_file_resynth = base_name_root + '_removed.125.wav'
+      test_file_triples.append((wav_file, wav_file_resynth, mid_file))
+
+  test_output_name = os.path.join(FLAGS.output_dir,
+                                  'maps_config2_test_resynth.tfrecord')
+
+  with tf.python_io.TFRecordWriter(test_output_name) as writer:
+    for triple in test_file_triples:
+      print(triple)
+      # load the wav data and resample it.
+      samples = audio_io.load_audio(triple[0], FLAGS.sample_rate)
+      wav_data = audio_io.samples_to_wav_data(samples, FLAGS.sample_rate)
+      samples_resynth = audio_io.load_audio(triple[1], FLAGS.sample_rate)
+      wav_data_resynth = audio_io.samples_to_wav_data(samples_resynth, FLAGS.sample_rate)
+
+      # load the midi data and convert to a notesequence
+      ns = midi_io.midi_file_to_note_sequence(triple[2])
+
+      velocities = [note.velocity for note in ns.notes]
+      velocity_max = np.max(velocities)
+      velocity_min = np.min(velocities)
+      new_velocity_tuple = music_pb2.VelocityRange(
+          min=velocity_min, max=velocity_max)
+
+      example = tf.train.Example(features=tf.train.Features(feature={
+          'id':
+          tf.train.Feature(bytes_list=tf.train.BytesList(
+              value=[pair[0]]
+              )),
+          'sequence':
+          tf.train.Feature(bytes_list=tf.train.BytesList(
+              value=[ns.SerializeToString()]
+              )),
+          'audio':
+          tf.train.Feature(bytes_list=tf.train.BytesList(
+              value=[wav_data]
+              )),
+          'audio_resynth':
+          tf.train.Feature(bytes_list=tf.train.BytesList(
+              value=[wav_data_resynth]
+              )),
+          'velocity_range':
+          tf.train.Feature(bytes_list=tf.train.BytesList(
+              value=[new_velocity_tuple.SerializeToString()]
+              )),
+          }))
+      writer.write(example.SerializeToString())
+
+  return [filename_to_id(wav) for wav, _, _ in test_file_triples]
+
 
 def main(unused_argv):
-  test_ids = generate_test_set()
-  generate_train_set(test_ids)
+  if FLAGS.mode == 'standard':
+    test_ids = generate_test_set()
+    generate_train_set(test_ids)
+  else:
+    test_ids = generate_test_set_resynth()
+    generate_train_set_resynth(test_ids)
 
 
 def console_entry_point():

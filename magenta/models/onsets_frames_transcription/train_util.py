@@ -91,9 +91,11 @@ def train(train_dir,
     if mode == 'train':
         loss, losses, unused_labels, unused_predictions, images = model.get_model(
             transcription_data, hparams, is_training=True)
-    elif mode == 'train_missing':
-        loss, losses, unused_labels, unused_predictions, images = model.get_model_missing(
+    elif mode == 'train_resynth':
+        loss, losses, unused_labels, unused_predictions, images = model.get_model_resynth(
             transcription_data, hparams, is_training=True)
+    else:
+        raise ValueError('Unknown mode: {}'.format(mode))
 
     tf.summary.scalar('loss', loss)
     for label, loss_collection in losses.iteritems():

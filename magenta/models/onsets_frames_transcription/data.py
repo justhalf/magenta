@@ -292,6 +292,12 @@ InputTensors = collections.namedtuple(
     ('spec', 'labels', 'label_weights', 'length', 'onsets', 'offsets',
      'velocities', 'velocity_range', 'filename', 'note_sequence'))
 
+InputTensorsResynth = collections.namedtuple(
+    'InputTensorsResynth',
+    ('spec', 'resynth_spec', 'labels', 'label_weights', 'length', 'onsets', 'offsets',
+     'velocities', 'velocity_range', 'filename', 'diff_note_sequence', 'orig_note_sequence',
+     'resynth_note_sequence'))
+
 
 def _preprocess_data(sequence, audio, velocity_range, hparams, is_training):
   """Compute spectral representation, labels, and length from sequence/audio.
@@ -341,6 +347,65 @@ def _preprocess_data(sequence, audio, velocity_range, hparams, is_training):
       transformed_wav, hparams_frames_per_second(hparams))
 
   return (spec, labels, label_weights, length, onsets,
+          offsets, velocities, velocity_range)
+
+
+def _preprocess_data_resynth(diff_sequence, orig_audio, resynth_audio, velocity_range, hparams, is_training):
+  """Compute spectral representation, labels, and length from sequence/audio.
+
+  Args:
+    diff_sequence: String tensor containing serialized NoteSequence proto.
+    orig_audio: String tensor WAV data.
+    resynth_audio: String tensor WAV data.
+    velocity_range: String tensor containing max and min velocities of file as
+        a serialized VelocityRange.
+    hparams: HParams object specifying hyperparameters.
+    is_training: Whether or not this is a training run.
+
+  Returns:
+    A 3-tuple of tensors containing CQT, pianoroll labels, and number of frames
+    respectively.
+
+  Raises:
+    ValueError: If hparams is contains an invalid spec_type.
+  """
+
+  wav_jitter_amount_ms = label_jitter_amount_ms = 0
+  # if there is combined jitter, we must generate it once here
+  if hparams.jitter_amount_ms > 0:
+    if hparams.jitter_wav_and_label_separately:
+      wav_jitter_amount_ms = np.random.choice(hparams.jitter_amount_ms, size=1)
+      label_jitter_amount_ms = np.random.choice(
+          hparams.jitter_amount_ms, size=1)
+    else:
+      wav_jitter_amount_ms = np.random.choice(hparams.jitter_amount_ms, size=1)
+      label_jitter_amount_ms = wav_jitter_amount_ms
+
+  if label_jitter_amount_ms > 0:
+    diff_sequence = jitter_label_op(diff_sequence, label_jitter_amount_ms / 1000.)
+
+  orig_transformed_wav = transform_wav_data_op(
+      orig_audio,
+      hparams=hparams,
+      is_training=is_training,
+      jitter_amount_sec=wav_jitter_amount_ms / 1000.)
+
+  resynth_transformed_wav = transform_wav_data_op(
+      resynth_audio,
+      hparams=hparams,
+      is_training=is_training,
+      jitter_amount_sec=wav_jitter_amount_ms / 1000.)
+
+  orig_spec = wav_to_spec_op(orig_transformed_wav, hparams=hparams)
+  resynth_spec = wav_to_spec_op(resynth_transformed_wav, hparams=hparams)
+
+  labels, label_weights, onsets, offsets, velocities = sequence_to_pianoroll_op(
+      diff_sequence, velocity_range, hparams=hparams)
+
+  length = wav_to_num_frames_op(
+      orig_transformed_wav, hparams_frames_per_second(hparams))
+
+  return (orig_spec, resynth_spec, labels, label_weights, length, onsets,
           offsets, velocities, velocity_range)
 
 
@@ -449,12 +514,101 @@ def _provide_data(input_tensors, truncated_length, hparams):
   return batch_tensors
 
 
+def _provide_data_resynth(input_tensors, truncated_length, hparams):
+  """Returns tensors for reading batches from provider."""
+  (spec, resynth_spec, labels, label_weights, length, onsets, offsets, velocities,
+   unused_velocity_range, filename, diff_note_sequence, orig_note_sequence,
+   resynth_note_sequence) = input_tensors
+
+  length = tf.to_int32(length)
+  labels = tf.reshape(labels, (-1, constants.MIDI_PITCHES))
+  label_weights = tf.reshape(label_weights, (-1, constants.MIDI_PITCHES))
+  onsets = tf.reshape(onsets, (-1, constants.MIDI_PITCHES))
+  offsets = tf.reshape(offsets, (-1, constants.MIDI_PITCHES))
+  velocities = tf.reshape(velocities, (-1, constants.MIDI_PITCHES))
+  spec = tf.reshape(spec, (-1, hparams_frame_size(hparams)))
+  resynth_spec = tf.reshape(resynth_spec, (-1, hparams_frame_size(hparams)))
+
+  truncated_length = (tf.reduce_min([truncated_length, length])
+                      if truncated_length else length)
+
+  # Pad or slice specs and labels tensors to have the same lengths,
+  # truncating after truncated_length.
+  spec_delta = tf.shape(spec)[0] - truncated_length
+  spec = tf.case(
+      [(spec_delta < 0,
+        lambda: tf.pad(spec, tf.stack([(0, -spec_delta), (0, 0)]))),
+       (spec_delta > 0, lambda: spec[0:-spec_delta])],
+      default=lambda: spec)
+  resynth_spec_delta = tf.shape(resynth_spec)[0] - truncated_length
+  resynth_spec = tf.case(
+      [(resynth_spec_delta < 0,
+        lambda: tf.pad(resynth_spec, tf.stack([(0, -resynth_spec_delta), (0, 0)]))),
+       (resynth_spec_delta > 0, lambda: resynth_spec[0:-resynth_spec_delta])],
+      default=lambda: resynth_spec)
+  labels_delta = tf.shape(labels)[0] - truncated_length
+  labels = tf.case(
+      [(labels_delta < 0,
+        lambda: tf.pad(labels, tf.stack([(0, -labels_delta), (0, 0)]))),
+       (labels_delta > 0, lambda: labels[0:-labels_delta])],
+      default=lambda: labels)
+  label_weights = tf.case(
+      [(labels_delta < 0,
+        lambda: tf.pad(label_weights, tf.stack([(0, -labels_delta), (0, 0)]))
+       ), (labels_delta > 0, lambda: label_weights[0:-labels_delta])],
+      default=lambda: label_weights)
+  onsets = tf.case(
+      [(labels_delta < 0,
+        lambda: tf.pad(onsets, tf.stack([(0, -labels_delta), (0, 0)]))),
+       (labels_delta > 0, lambda: onsets[0:-labels_delta])],
+      default=lambda: onsets)
+  offsets = tf.case(
+      [(labels_delta < 0,
+        lambda: tf.pad(offsets, tf.stack([(0, -labels_delta), (0, 0)]))),
+       (labels_delta > 0, lambda: offsets[0:-labels_delta])],
+      default=lambda: offsets)
+  velocities = tf.case(
+      [(labels_delta < 0,
+        lambda: tf.pad(velocities, tf.stack([(0, -labels_delta), (0, 0)]))),
+       (labels_delta > 0, lambda: velocities[0:-labels_delta])],
+      default=lambda: velocities)
+
+  truncated_diff_note_sequence = truncate_note_sequence_op(
+      diff_note_sequence, truncated_length, hparams)
+  truncated_orig_note_sequence = truncate_note_sequence_op(
+      orig_note_sequence, truncated_length, hparams)
+  truncated_resynth_note_sequence = truncate_note_sequence_op(
+      resynth_note_sequence, truncated_length, hparams)
+
+  batch_tensors = {
+      'spec': tf.reshape(
+          spec, (truncated_length, hparams_frame_size(hparams), 1)),
+      'resynth_spec': tf.reshape(
+          resynth_spec, (truncated_length, hparams_frame_size(hparams), 1)),
+      'labels': tf.reshape(labels, (truncated_length, constants.MIDI_PITCHES)),
+      'label_weights': tf.reshape(
+          label_weights, (truncated_length, constants.MIDI_PITCHES)),
+      'lengths': truncated_length,
+      'onsets': tf.reshape(onsets, (truncated_length, constants.MIDI_PITCHES)),
+      'offsets': tf.reshape(offsets, (truncated_length,
+                                      constants.MIDI_PITCHES)),
+      'velocities':
+          tf.reshape(velocities, (truncated_length, constants.MIDI_PITCHES)),
+      'filenames': filename,
+      'diff_note_sequences': truncated_diff_note_sequence,
+      'orig_note_sequences': truncated_orig_note_sequence,
+      'resynth_note_sequences': truncated_resynth_note_sequence,
+  }
+
+  return batch_tensors
+
+
 def provide_batch(batch_size,
                   examples,
                   hparams,
                   truncated_length=0,
                   is_training=True,
-                  mode='train'):
+                  mode='train'):  # Or mode='train_resynth'
   """Returns batches of tensors read from TFRecord files.
 
   Args:
@@ -482,30 +636,64 @@ def provide_batch(batch_size,
           examples, is_training)
 
     def _parse(example_proto):
-      features = {
-          'id': tf.FixedLenFeature(shape=(), dtype=tf.string),
-          'sequence': tf.FixedLenFeature(shape=(), dtype=tf.string),
-          'audio': tf.FixedLenFeature(shape=(), dtype=tf.string),
-          'velocity_range': tf.FixedLenFeature(shape=(), dtype=tf.string),
-      }
+      if mode == 'train':
+        features = {
+            'id': tf.FixedLenFeature(shape=(), dtype=tf.string),
+            'sequence': tf.FixedLenFeature(shape=(), dtype=tf.string),
+            'audio': tf.FixedLenFeature(shape=(), dtype=tf.string),
+            'velocity_range': tf.FixedLenFeature(shape=(), dtype=tf.string),
+        }
+      else:
+        features = {
+            'id': tf.FixedLenFeature(shape=(), dtype=tf.string),
+            'orig_sequence': tf.FixedLenFeature(shape=(), dtype=tf.string),
+            'resynth_sequence': tf.FixedLenFeature(shape=(), dtype=tf.string),
+            'orig_audio': tf.FixedLenFeature(shape=(), dtype=tf.string),
+            'resynth_audio': tf.FixedLenFeature(shape=(), dtype=tf.string),
+            'velocity_range': tf.FixedLenFeature(shape=(), dtype=tf.string),
+            'diff_sequence': tf.FixedLenFeature(shape=(), dtype=tf.string),
+        }
       return tf.parse_single_example(example_proto, features)
 
     def _preprocess(record):
-      (spec, labels, label_weights, length, onsets, offsets, velocities,
-       velocity_range) = _preprocess_data(
-           record['sequence'], record['audio'], record['velocity_range'],
-           hparams, is_training)
-      return InputTensors(
-          spec=spec,
-          labels=labels,
-          label_weights=label_weights,
-          length=length,
-          onsets=onsets,
-          offsets=offsets,
-          velocities=velocities,
-          velocity_range=velocity_range,
-          filename=record['id'],
-          note_sequence=record['sequence'])
+      # The output of this will be used in provide_data function
+      if mode == 'train':
+        (spec, labels, label_weights, length, onsets, offsets, velocities,
+         velocity_range) = _preprocess_data(
+             record['sequence'], record['audio'], record['velocity_range'],
+             hparams, is_training)
+        return InputTensors(
+            spec=spec,
+            labels=labels,
+            label_weights=label_weights,
+            length=length,
+            onsets=onsets,
+            offsets=offsets,
+            velocities=velocities,
+            velocity_range=velocity_range,
+            filename=record['id'],
+            note_sequence=record['sequence'])
+      elif mode == 'train_resynth':
+        (spec, resynth_spec, labels, label_weights, length, onsets, offsets, velocities,
+         velocity_range) = _preprocess_data_resynth(
+             record['diff_sequence'], record['orig_audio'], record['resynth_audio'],
+             record['velocity_range'], hparams, is_training)
+        return InputTensorsResynth(
+            spec=spec,
+            resynth_spec=resynth_spec
+            labels=labels,
+            label_weights=label_weights,
+            length=length,
+            onsets=onsets,
+            offsets=offsets,
+            velocities=velocities,
+            velocity_range=velocity_range,
+            filename=record['id'],
+            diff_note_sequence=record['diff_sequence'],
+            orig_note_sequence=record['orig_sequence'],
+            resynth_note_sequence=record['resynth_sequence'])
+      else:
+        raise ValueError('Unknown mode: {}'.format(mode))
 
     input_dataset = input_dataset.map(_parse).map(
         _preprocess, num_parallel_calls=NUM_BATCH_THREADS)
@@ -515,9 +703,13 @@ def provide_batch(batch_size,
 
     batch_queue_capacity = BATCH_QUEUE_CAPACITY_SEQUENCES
 
+    if mode == 'train':
+      _provide_data_func = _provide_data
+    elif mode == 'train_resynth':
+      _provide_data_func = _provide_data_resynth
     dataset = input_dataset.map(
         functools.partial(
-            _provide_data, truncated_length=truncated_length, hparams=hparams),
+            _provide_data_func, truncated_length=truncated_length, hparams=hparams),
         num_parallel_calls=NUM_BATCH_THREADS)
 
     if is_training:

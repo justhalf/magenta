@@ -235,12 +235,15 @@ def get_model(transcription_data, hparams, is_training=True):
   return (tf.losses.get_total_loss(), losses, frame_labels_flat,
           predictions_flat, images)
 
-def get_model_missing(transcription_data, hparams, is_training=True):
+def get_model_resynth(transcription_data, hparams, is_training=True):
   """Builds the acoustic model."""
-  missing_labels = transcription_data.missing
+  onset_labels = transcription_data.onsets
+  velocity_labels = transcription_data.velocities
+  frame_labels = transcription_data.labels
+  frame_label_weights = transcription_data.label_weights
   lengths = transcription_data.lengths
-  spec_ref = transcription_data.spec_ref
-  spec_pred = transcription_data.spec_pred
+  spec = transcription_data.spec
+  resynth_spec = transcription_data.resynth_spec
 
   if hparams.stop_activation_gradient and not hparams.activation_loss:
     raise ValueError(
@@ -248,144 +251,149 @@ def get_model_missing(transcription_data, hparams, is_training=True):
 
   losses = {}
   with slim.arg_scope([slim.batch_norm, slim.dropout], is_training=is_training):
-    with tf.variable_scope('ref'):
-      ref_outputs = acoustic_model(
-          spec_ref, hparams, lstm_units=hparams.ref_lstm_units, lengths=lengths)
-    with tf.variable_scope('shared_sigmoid') as shared_sigmoid_scope:
-      ref_probs = slim.fully_connected(
-          ref_outputs,
+    with tf.variable_scope('onsets'):
+      onset_outputs = acoustic_model(
+          spec, hparams, lstm_units=hparams.onset_lstm_units, lengths=lengths)
+      resynth_onset_outputs = acoustic_model(
+          resynth_spec, hparams, lstm_units=hparams.onset_lstm_units, lengths=lengths)
+      combined_onset_outputs = tf.concat([onset_outputs, resynth_onset_outputs], 2)
+      onset_probs = slim.fully_connected(
+          combined_onset_outputs,
           constants.MIDI_PITCHES,
-          activation_fn=tf.sigmoid)
+          activation_fn=tf.sigmoid,
+          scope='onset_probs')
 
-    with tf.variable_scope('pred'):
-      pred_outputs = acoustic_model(
-          spec_pred, hparams, lstm_units=hparams.pred_lstm_units, lengths=lengths)
-    with tf.variable_scope(shared_sigmoid_scope, reuse=True):
-      pred_probs = slim.fully_connected(
-          pred_outputs,
+      # onset_probs_flat is used during inference.
+      onset_probs_flat = flatten_maybe_padded_sequences(onset_probs, lengths)
+      onset_labels_flat = flatten_maybe_padded_sequences(onset_labels, lengths)
+      tf.identity(onset_probs_flat, name='onset_probs_flat')
+      tf.identity(onset_labels_flat, name='onset_labels_flat')
+      tf.identity(
+          tf.cast(tf.greater_equal(onset_probs_flat, .5), tf.float32),
+          name='onset_predictions_flat')
+
+      onset_losses = tf_utils.log_loss(onset_labels_flat, onset_probs_flat)
+      tf.losses.add_loss(tf.reduce_mean(onset_losses))
+      losses['onset'] = onset_losses
+
+    with tf.variable_scope('velocity'):
+      # TODO(eriche): this is broken when hparams.velocity_lstm_units > 0
+      velocity_outputs = acoustic_model(
+          spec,
+          hparams,
+          lstm_units=hparams.velocity_lstm_units,
+          lengths=lengths)
+      resynth_velocity_outputs = acoustic_model(
+          resynth_spec,
+          hparams,
+          lstm_units=hparams.velocity_lstm_units,
+          lengths=lengths)
+      combined_velocity_outputs = tf.concat([velocity_outputs, resynth_velocity_outputs], 2)
+      velocity_values = slim.fully_connected(
+          combined_velocity_outputs,
           constants.MIDI_PITCHES,
-          activation_fn=tf.sigmoid)
+          activation_fn=None,
+          scope='onset_velocities')
 
-      # ref_probs_flat is used during inference.
-      # ref_probs_flat = flatten_maybe_padded_sequences(ref_probs, lengths)
-      # ref_labels_flat = flatten_maybe_padded_sequences(ref_labels, lengths)
-      # tf.identity(ref_probs_flat, name='ref_probs_flat')
-      # tf.identity(ref_labels_flat, name='ref_labels_flat')
-      # tf.identity(
-      #     tf.cast(tf.greater_equal(ref_probs_flat, .5), tf.float32),
-      #     name='ref_predictions_flat')
+      velocity_values_flat = flatten_maybe_padded_sequences(
+          velocity_values, lengths)
+      tf.identity(velocity_values_flat, name='velocity_values_flat')
+      velocity_labels_flat = flatten_maybe_padded_sequences(
+          velocity_labels, lengths)
+      velocity_loss = tf.reduce_sum(
+          onset_labels_flat *
+          tf.square(velocity_labels_flat - velocity_values_flat),
+          axis=1)
+      tf.losses.add_loss(tf.reduce_mean(velocity_loss))
+      losses['velocity'] = velocity_loss
 
-      # ref_losses = tf_utils.log_loss(ref_labels_flat, ref_probs_flat)
-      # tf.losses.add_loss(tf.reduce_mean(ref_losses))
-      # losses['ref'] = ref_losses
-
-    # with tf.variable_scope('velocity'):
-    #   # TODO(eriche): this is broken when hparams.velocity_lstm_units > 0
-    #   velocity_outputs = acoustic_model(
-    #       spec,
-    #       hparams,
-    #       lstm_units=hparams.velocity_lstm_units,
-    #       lengths=lengths)
-    #   velocity_values = slim.fully_connected(
-    #       velocity_outputs,
-    #       constants.MIDI_PITCHES,
-    #       activation_fn=None,
-    #       scope='onset_velocities')
-
-    #   velocity_values_flat = flatten_maybe_padded_sequences(
-    #       velocity_values, lengths)
-    #   tf.identity(velocity_values_flat, name='velocity_values_flat')
-    #   velocity_labels_flat = flatten_maybe_padded_sequences(
-    #       velocity_labels, lengths)
-    #   velocity_loss = tf.reduce_sum(
-    #       onset_labels_flat *
-    #       tf.square(velocity_labels_flat - velocity_values_flat),
-    #       axis=1)
-    #   tf.losses.add_loss(tf.reduce_mean(velocity_loss))
-    #   losses['velocity'] = velocity_loss
-
-    # with tf.variable_scope('frame'):
-    #   if not hparams.share_conv_features:
-    #     # TODO(eriche): this is broken when hparams.frame_lstm_units > 0
-    #     activation_outputs = acoustic_model(
-    #         spec, hparams, lstm_units=hparams.frame_lstm_units, lengths=lengths)
-    #     activation_probs = slim.fully_connected(
-    #         activation_outputs,
-    #         constants.MIDI_PITCHES,
-    #         activation_fn=tf.sigmoid,
-    #         scope='activation_probs')
-    #   else:
-    #     activation_probs = slim.fully_connected(
-    #         onset_outputs,
-    #         constants.MIDI_PITCHES,
-    #         activation_fn=tf.sigmoid,
-    #         scope='activation_probs')
-
-    combined_probs = tf.concat([
-        ref_probs,
-        pred_probs
-    ], 2)
-
-    if hparams.combined_lstm_units > 0:
-      rnn_cell_fw = tf.contrib.rnn.LSTMBlockCell(hparams.combined_lstm_units)
-      if hparams.frame_bidirectional:
-        rnn_cell_bw = tf.contrib.rnn.LSTMBlockCell(
-            hparams.combined_lstm_units)
-        outputs, unused_output_states = tf.nn.bidirectional_dynamic_rnn(
-            rnn_cell_fw, rnn_cell_bw, inputs=combined_probs, dtype=tf.float32)
-        combined_outputs = tf.concat(outputs, 2)
+    with tf.variable_scope('frame'):
+      if not hparams.share_conv_features:
+        # TODO(eriche): this is broken when hparams.frame_lstm_units > 0
+        activation_outputs = acoustic_model(
+            spec, hparams, lstm_units=hparams.frame_lstm_units, lengths=lengths)
+        resynth_activation_outputs = acoustic_model(
+            resynth_spec, hparams, lstm_units=hparams.frame_lstm_units, lengths=lengths)
+        combined_activation_outputs = tf.tensor([activation_outputs, resynth_activation_outputs], 2)
+        activation_probs = slim.fully_connected(
+            combined_activation_outputs,
+            constants.MIDI_PITCHES,
+            activation_fn=tf.sigmoid,
+            scope='activation_probs')
       else:
-        combined_outputs, unused_output_states = tf.nn.dynamic_rnn(
-            rnn_cell_fw, inputs=combined_probs, dtype=tf.float32)
-    else:
-      combined_outputs = combined_probs
+        activation_probs = slim.fully_connected(
+            onset_outputs,
+            constants.MIDI_PITCHES,
+            activation_fn=tf.sigmoid,
+            scope='activation_probs')
 
-      missing_probs = slim.fully_connected(
+      combined_probs = tf.concat([
+          tf.stop_gradient(onset_probs)
+          if hparams.stop_onset_gradient else onset_probs,
+          tf.stop_gradient(activation_probs)
+          if hparams.stop_activation_gradient else activation_probs
+      ], 2)
+
+      if hparams.combined_lstm_units > 0:
+        rnn_cell_fw = tf.contrib.rnn.LSTMBlockCell(hparams.combined_lstm_units)
+        if hparams.frame_bidirectional:
+          rnn_cell_bw = tf.contrib.rnn.LSTMBlockCell(
+              hparams.combined_lstm_units)
+          outputs, unused_output_states = tf.nn.bidirectional_dynamic_rnn(
+              rnn_cell_fw, rnn_cell_bw, inputs=combined_probs, dtype=tf.float32)
+          combined_outputs = tf.concat(outputs, 2)
+        else:
+          combined_outputs, unused_output_states = tf.nn.dynamic_rnn(
+              rnn_cell_fw, inputs=combined_probs, dtype=tf.float32)
+      else:
+        combined_outputs = combined_probs
+
+      frame_probs = slim.fully_connected(
           combined_outputs,
           constants.MIDI_PITCHES,
           activation_fn=tf.sigmoid,
-          scope='missing_probs')
+          scope='frame_probs')
 
-    missing_labels_flat = flatten_maybe_padded_sequences(missing_labels, lengths)
-    missing_probs_flat = flatten_maybe_padded_sequences(missing_probs, lengths)
-    tf.identity(missing_probs_flat, name='missing_probs_flat')
-    missing_label_weights_flat = flatten_maybe_padded_sequences(
-        missing_label_weights, lengths)
-    missing_losses = tf_utils.log_loss(
-        missing_labels_flat,
-        missing_probs_flat,
-        weights=missing_label_weights_flat
-        if hparams.weight_missing_and_activation_loss else None)
-    tf.losses.add_loss(tf.reduce_mean(missing_losses))
-    losses['missing'] = missing_losses
+    frame_labels_flat = flatten_maybe_padded_sequences(frame_labels, lengths)
+    frame_probs_flat = flatten_maybe_padded_sequences(frame_probs, lengths)
+    tf.identity(frame_probs_flat, name='frame_probs_flat')
+    frame_label_weights_flat = flatten_maybe_padded_sequences(
+        frame_label_weights, lengths)
+    frame_losses = tf_utils.log_loss(
+        frame_labels_flat,
+        frame_probs_flat,
+        weights=frame_label_weights_flat
+        if hparams.weight_frame_and_activation_loss else None)
+    tf.losses.add_loss(tf.reduce_mean(frame_losses))
+    losses['frame'] = frame_losses
 
-    # if hparams.activation_loss:
-    #   activation_losses = tf_utils.log_loss(
-    #       frame_labels_flat,
-    #       flatten_maybe_padded_sequences(activation_probs, lengths),
-    #       weights=frame_label_weights_flat
-    #       if hparams.weight_frame_and_activation_loss else None)
-    #   tf.losses.add_loss(tf.reduce_mean(activation_losses))
-    #   losses['activation'] = activation_losses
+    if hparams.activation_loss:
+      activation_losses = tf_utils.log_loss(
+          frame_labels_flat,
+          flatten_maybe_padded_sequences(activation_probs, lengths),
+          weights=frame_label_weights_flat
+          if hparams.weight_frame_and_activation_loss else None)
+      tf.losses.add_loss(tf.reduce_mean(activation_losses))
+      losses['activation'] = activation_losses
 
   predictions_flat = tf.cast(tf.greater_equal(frame_probs_flat, .5), tf.float32)
 
   # Creates a pianoroll labels in red and probs in green [minibatch, 88]
   images = {}
-  missing_pianorolls = tf.concat(
+  onset_pianorolls = tf.concat(
       [
-          missing_labels[:, :, :, tf.newaxis], missing_probs[:, :, :, tf.newaxis],
-          tf.zeros(tf.shape(missing_labels))[:, :, :, tf.newaxis]
+          onset_labels[:, :, :, tf.newaxis], onset_probs[:, :, :, tf.newaxis],
+          tf.zeros(tf.shape(onset_labels))[:, :, :, tf.newaxis]
       ],
       axis=3)
-  images['MissingPianorolls'] = missing_pianorolls
-  # activation_pianorolls = tf.concat(
-  #     [
-  #         frame_labels[:, :, :, tf.newaxis], frame_probs[:, :, :, tf.newaxis],
-  #         tf.zeros(tf.shape(frame_labels))[:, :, :, tf.newaxis]
-  #     ],
-  #     axis=3)
-  # images['ActivationPianorolls'] = activation_pianorolls
+  images['OnsetPianorolls'] = onset_pianorolls
+  activation_pianorolls = tf.concat(
+      [
+          frame_labels[:, :, :, tf.newaxis], frame_probs[:, :, :, tf.newaxis],
+          tf.zeros(tf.shape(frame_labels))[:, :, :, tf.newaxis]
+      ],
+      axis=3)
+  images['ActivationPianorolls'] = activation_pianorolls
 
   return (tf.losses.get_total_loss(), losses, frame_labels_flat,
           predictions_flat, images)

@@ -429,7 +429,7 @@ def generate_train_set_resynth(exclude_ids):
       # load the midi data and convert to a notesequence
       orig_ns = midi_io.midi_file_to_note_sequence(quad[2])
       resynth_ns = midi_io.midi_file_to_note_sequence(quad[3])
-      diff_ns = difference_note_sequence(orig_ns, predicted_ns)
+      diff_ns = difference_note_sequence(orig_ns, resynth_ns)
       splits = find_split_points(orig_ns, orig_samples, FLAGS.sample_rate,
                                  FLAGS.min_length, FLAGS.max_length)
 

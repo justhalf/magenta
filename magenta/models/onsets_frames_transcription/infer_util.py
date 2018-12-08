@@ -50,6 +50,28 @@ def sequence_to_valued_intervals(note_sequence,
   return np.array(intervals), np.array(pitches)
 
 
+def sequence_to_valued_intervals_notes(note_sequence,
+                                 min_duration_ms,
+                                 min_midi_pitch=constants.MIN_MIDI_PITCH,
+                                 max_midi_pitch=constants.MAX_MIDI_PITCH):
+  """Convert a NoteSequence to valued intervals."""
+  intervals = []
+  pitches = []
+  notes = []
+
+  for note in note_sequence.notes:
+    if note.pitch < min_midi_pitch or note.pitch > max_midi_pitch:
+      continue
+    # mir_eval does not allow notes that start and end at the same time.
+    if note.end_time == note.start_time:
+      continue
+    if (note.end_time - note.start_time) * 1000 >= min_duration_ms:
+      intervals.append((note.start_time, note.end_time))
+      pitches.append(note.pitch)
+      notes.append(note)
+
+  return np.array(intervals), np.array(pitches), notes
+
 def safe_log(value):
   """Lower bounded log function."""
   return np.log(1e-6 + value)

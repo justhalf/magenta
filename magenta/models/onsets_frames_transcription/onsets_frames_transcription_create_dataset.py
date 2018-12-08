@@ -484,10 +484,16 @@ def generate_train_set_resynth(exclude_ids):
 
 def get_base_name_from_super_long_filename(super_long_filename):
   #super_long_filename = 'data/MAPS_predicted/_usr2_home_amuis_.other_speech_data_MAPS_ENSTDkAm_MUS_MAPS_MUS-bk_xmas1_ENSTDkAm.wav_label_from_frames.mid'
-
-  name = super_long_filename.split(".")[1]
-  temp = name.split("_")
-  base_name = "_".join(temp[len(temp)-4:])
+  name, ext = os.path.splitext(super_long_filename)
+  start = -1
+  end = -1
+  tokens = re.split('[._]', name)
+  for idx, token in enumerate(tokens):
+    if token == 'MAPS':
+      start = idx
+    if token in MAPS_DIRS:
+      end = idx+1
+  base_name = '_'.join(tokens[start:end])
   return base_name
 
 def generate_test_set_resynth():
@@ -499,7 +505,7 @@ def generate_test_set_resynth():
   #print("here")
   #print(FLAGS.predicted_dir)
   #print(FLAGS.input_dir)
-  path = os.path.join(FLAGS.predicted_dir, '*.mid')
+  path = os.path.join(FLAGS.predicted_dir, '*.wav.mid')
   mid_files = glob.glob(path)
   # find matching wav files
   #print("----------- TEST here ------------")

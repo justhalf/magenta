@@ -407,9 +407,12 @@ def generate_train_set_resynth(exclude_ids):
     #print("========= orig_wav_file: " + str(orig_wav_file))
     #print(exclude_ids)
     MAPS_dirname = get_MAPS_dirname(resynth_mid_file)
-    if MAPS_dirname not in exclude_ids:
+    # if MAPS_dirname not in exclude_ids:
+    #   train_file_quads.append((orig_wav_file, resynth_wav_file,
+		#                      orig_mid_file, resynth_mid_file))
+    if MAPS_dirname in train_resynth_dirs:
       train_file_quads.append((orig_wav_file, resynth_wav_file,
-	                       orig_mid_file, resynth_mid_file))
+                         orig_mid_file, resynth_mid_file))
 
   train_output_name = os.path.join(FLAGS.output_dir,
                                    'maps_config2_train_resynth.tfrecord')

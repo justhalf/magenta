@@ -77,7 +77,8 @@ def train(train_dir,
           checkpoints_to_keep=5,
           keep_checkpoint_every_n_hours=1,
           num_steps=None,
-          mode='train'):
+          mode='train',
+          share_conv=True):
   """Train loop."""
   tf.gfile.MakeDirs(train_dir)
 
@@ -93,7 +94,7 @@ def train(train_dir,
             transcription_data, hparams, is_training=True)
     elif mode == 'train_resynth':
         loss, losses, unused_labels, unused_predictions, images = model.get_model_resynth(
-            transcription_data, hparams, is_training=True)
+            transcription_data, hparams, is_training=True, share_conv=share_conv)
     else:
         raise ValueError('Unknown mode: {}'.format(mode))
 

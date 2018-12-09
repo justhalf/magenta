@@ -62,6 +62,9 @@ tf.app.flags.DEFINE_string(
     'log', 'INFO',
     'The threshold for what messages will be logged: '
     'DEBUG, INFO, WARN, ERROR, or FATAL.')
+tf.app.flags.DEFINE_string(
+    'share_conv', 'true',
+    'Whether to share CNN between original and resynth audio')
 
 
 def run(hparams, run_dir):
@@ -91,13 +94,18 @@ def run(hparams, run_dir):
         num_batches=FLAGS.eval_num_batches,
         hparams=hparams)
   elif FLAGS.mode.startswith('train'):
+    if FLAGS.share_conv in ['true', True, 'True']:
+      share_conv = True
+    else:
+      share_conv = False
     train_util.train(
         train_dir=train_dir,
         examples_path=FLAGS.examples_path,
         hparams=hparams,
         checkpoints_to_keep=FLAGS.checkpoints_to_keep,
         num_steps=FLAGS.num_steps,
-        mode=FLAGS.mode)
+        mode=FLAGS.mode,
+        share_conv=share_conv)
   else:
     raise ValueError('Invalid mode: {}'.format(FLAGS.mode))
 

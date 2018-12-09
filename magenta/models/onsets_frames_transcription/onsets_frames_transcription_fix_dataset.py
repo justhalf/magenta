@@ -27,6 +27,7 @@ import math
 import os
 import re
 import sys
+import copy
 
 import librosa
 import numpy as np
@@ -501,34 +502,34 @@ def _parse(example_proto):
   return tf.parse_single_example(example_proto, features)
 
 
-def fix_train_set_resynth(exclude_ids):
+def fix_train_set_resynth(input_name, output_name):
   """Generate the train TFRecord."""
-  train_input_name = os.path.join(FLAGS.output_dir,
-                                   'maps_config2_train_resynth_old.tfrecord')
-  if os.path.exists(train_input_name):
-    print('Path {} does not exist'.format(train_input_name))
+  if not os.path.exists(input_name):
+    print('Path {} does not exist'.format(input_name))
     sys.exit(1)
-  train_output_name = os.path.join(FLAGS.output_dir,
-                                   'maps_config2_train_resynth.tfrecord')
   #print("train output name: " + str(train_output_name))
   def get_val(record, field):
     return record.features.feature[field].bytes_list.value[0]
   prev_path = ''
   counter = 0
-  with tf.python_io.TFRecordWriter(train_output_name) as writer:
-    for string_record in tf.python_io.tf_record_iterator(train_input_name):
+  with tf.python_io.TFRecordWriter(output_name) as writer:
+    for string_record in tf.python_io.tf_record_iterator(input_name):
       record = tf.train.Example()
       record.ParseFromString(string_record)
       path = get_val(record, 'id')
       if path != prev_path:
         counter = 0
         print(path)
+        prev_path = path
       counter += 1
-      print('part {}'.format(counter))
+      # print('part {}'.format(counter))
       orig_ns = music_pb2.NoteSequence.FromString(get_val(record, 'orig_sequence'))
       resynth_ns = music_pb2.NoteSequence.FromString(get_val(record, 'resynth_sequence'))
       # diff_ns = music_pb2.NoteSequence.FromString(get_val(record, 'diff_sequence'))
-      new_diff_ns = difference_note_sequence(orig_ns, resynth_ns)
+      try:
+          new_diff_ns = difference_note_sequence(orig_ns, resynth_ns)
+      except ValueError:
+          continue
       example = tf.train.Example(features=tf.train.Features(feature={
           'id':
           tf.train.Feature(bytes_list=tf.train.BytesList(
@@ -556,7 +557,7 @@ def fix_train_set_resynth(exclude_ids):
               )),
           'diff_sequence':
           tf.train.Feature(bytes_list=tf.train.BytesList(
-              value=[diff_ns.SerializeToString()]
+              value=[new_diff_ns.SerializeToString()]
               )),
           }))
       writer.write(example.SerializeToString())
@@ -676,16 +677,20 @@ def difference_note_sequence(gold_ns, silver_ns):
   pred_intervals, pred_pitches, pred_notes = sequence_to_valued_intervals_notes(silver_ns, 0)
   #https://craffel.github.io/mir_eval/#mir_eval.transcription.match_notes
   # paired_idx is a list of tuple (ref_idx, pred_idx)
-  paired_idx = match_notes(ref_intervals, pretty_midi.note_number_to_hz(ref_pitches),
-                           pred_intervals, pretty_midi.note_number_to_hz(pred_pitches),
-                           offset_ratio=None)
+  try:
+      paired_idx = match_notes(ref_intervals, pretty_midi.note_number_to_hz(ref_pitches),
+                               pred_intervals, pretty_midi.note_number_to_hz(pred_pitches),
+                               offset_ratio=None)
+  except:
+      raise ValueError('Empty note sequence')
 
   ref_idx = range(len(ref_intervals))
   not_missed_ref_idx = [i[0] for i in paired_idx]
 
   missing_notes = [ref_notes[element] for element in ref_idx if element not in not_missed_ref_idx]
 
-  sequence = music_pb2.NoteSequence()
+  sequence = copy.deepcopy(gold_ns)
+  del gold_ns.notes[:]
   for missing_note in missing_notes:
     note = sequence.notes.add()
     note.start_time = missing_note.start_time
@@ -714,8 +719,18 @@ def main(unused_argv):
     # print(test_ids)
     # print("finish testing")
     # generate_train_set_resynth(test_ids)
+    print('Fixing {}/maps_config2_test_resynth.tfrecord'.format(FLAGS.output_dir))
+    test_input_name = os.path.join(FLAGS.output_dir,
+                                     'maps_config2_test_resynth_old.tfrecord')
+    test_output_name = os.path.join(FLAGS.output_dir,
+                                     'maps_config2_test_resynth.tfrecord')
+    fix_train_set_resynth(test_input_name, test_output_name)
     print('Fixing {}/maps_config2_train_resynth.tfrecord'.format(FLAGS.output_dir))
-    fix_train_set_resynth(set())
+    train_input_name = os.path.join(FLAGS.output_dir,
+                                     'maps_config2_train_resynth_old.tfrecord')
+    train_output_name = os.path.join(FLAGS.output_dir,
+                                     'maps_config2_train_resynth.tfrecord')
+    fix_train_set_resynth(train_input_name, train_output_name)
     print("finish training")
     
 

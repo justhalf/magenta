@@ -251,7 +251,7 @@ def get_model_resynth(transcription_data, hparams, is_training=True):
 
   losses = {}
   with slim.arg_scope([slim.batch_norm, slim.dropout], is_training=is_training):
-    with tf.variable_scope('onsets'):
+    with tf.variable_scope('onsets', reuse=tf.AUTO_REUSE):
       onset_outputs = acoustic_model(
           spec, hparams, lstm_units=hparams.onset_lstm_units, lengths=lengths)
       resynth_onset_outputs = acoustic_model(
@@ -276,7 +276,7 @@ def get_model_resynth(transcription_data, hparams, is_training=True):
       tf.losses.add_loss(tf.reduce_mean(onset_losses))
       losses['onset'] = onset_losses
 
-    with tf.variable_scope('velocity'):
+    with tf.variable_scope('velocity', reuse=tf.AUTO_REUSE):
       # TODO(eriche): this is broken when hparams.velocity_lstm_units > 0
       velocity_outputs = acoustic_model(
           spec,
@@ -307,14 +307,14 @@ def get_model_resynth(transcription_data, hparams, is_training=True):
       tf.losses.add_loss(tf.reduce_mean(velocity_loss))
       losses['velocity'] = velocity_loss
 
-    with tf.variable_scope('frame'):
+    with tf.variable_scope('frame', reuse=tf.AUTO_REUSE):
       if not hparams.share_conv_features:
         # TODO(eriche): this is broken when hparams.frame_lstm_units > 0
         activation_outputs = acoustic_model(
             spec, hparams, lstm_units=hparams.frame_lstm_units, lengths=lengths)
         resynth_activation_outputs = acoustic_model(
             resynth_spec, hparams, lstm_units=hparams.frame_lstm_units, lengths=lengths)
-        combined_activation_outputs = tf.tensor([activation_outputs, resynth_activation_outputs], 2)
+        combined_activation_outputs = tf.concat([activation_outputs, resynth_activation_outputs], 2)
         activation_probs = slim.fully_connected(
             combined_activation_outputs,
             constants.MIDI_PITCHES,

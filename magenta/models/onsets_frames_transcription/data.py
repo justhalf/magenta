@@ -680,7 +680,7 @@ def provide_batch(batch_size,
              record['velocity_range'], hparams, is_training)
         return InputTensorsResynth(
             spec=spec,
-            resynth_spec=resynth_spec
+            resynth_spec=resynth_spec,
             labels=labels,
             label_weights=label_weights,
             length=length,

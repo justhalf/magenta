@@ -487,6 +487,81 @@ def generate_train_set_resynth(exclude_ids):
             }))
         writer.write(example.SerializeToString())
 
+
+def _parse(example_proto):
+  features = {
+      'id': tf.FixedLenFeature(shape=(), dtype=tf.string),
+      'orig_sequence': tf.FixedLenFeature(shape=(), dtype=tf.string),
+      'resynth_sequence': tf.FixedLenFeature(shape=(), dtype=tf.string),
+      'orig_audio': tf.FixedLenFeature(shape=(), dtype=tf.string),
+      'resynth_audio': tf.FixedLenFeature(shape=(), dtype=tf.string),
+      'velocity_range': tf.FixedLenFeature(shape=(), dtype=tf.string),
+      'diff_sequence': tf.FixedLenFeature(shape=(), dtype=tf.string),
+  }
+  return tf.parse_single_example(example_proto, features)
+
+
+def fix_train_set_resynth(exclude_ids):
+  """Generate the train TFRecord."""
+  train_input_name = os.path.join(FLAGS.output_dir,
+                                   'maps_config2_train_resynth_old.tfrecord')
+  if os.path.exists(train_input_name):
+    print('Path {} does not exist'.format(train_input_name))
+    sys.exit(1)
+  train_output_name = os.path.join(FLAGS.output_dir,
+                                   'maps_config2_train_resynth.tfrecord')
+  #print("train output name: " + str(train_output_name))
+  def get_val(record, field):
+    return record.features.feature[field].bytes_list.value[0]
+  prev_path = ''
+  counter = 0
+  with tf.python_io.TFRecordWriter(train_output_name) as writer:
+    for string_record in tf.python_io.tf_record_iterator(train_input_name):
+      record = tf.train.Example()
+      record.ParseFromString(string_record)
+      path = get_val(record, 'id')
+      if path != prev_path:
+        counter = 0
+        print(path)
+      counter += 1
+      print('part {}'.format(counter))
+      orig_ns = music_pb2.NoteSequence.FromString(get_val(record, 'orig_sequence'))
+      resynth_ns = music_pb2.NoteSequence.FromString(get_val(record, 'resynth_sequence'))
+      # diff_ns = music_pb2.NoteSequence.FromString(get_val(record, 'diff_sequence'))
+      new_diff_ns = difference_note_sequence(orig_ns, resynth_ns)
+      example = tf.train.Example(features=tf.train.Features(feature={
+          'id':
+          tf.train.Feature(bytes_list=tf.train.BytesList(
+              value=[path]
+              )),
+          'orig_sequence':
+          tf.train.Feature(bytes_list=tf.train.BytesList(
+              value=[orig_ns.SerializeToString()]
+              )),
+          'resynth_sequence':
+          tf.train.Feature(bytes_list=tf.train.BytesList(
+              value=[resynth_ns.SerializeToString()]
+              )),
+          'orig_audio':
+          tf.train.Feature(bytes_list=tf.train.BytesList(
+              value=[get_val(record, 'orig_audio')]
+              )),
+          'resynth_audio':
+          tf.train.Feature(bytes_list=tf.train.BytesList(
+              value=[get_val(record, 'resynth_audio')]
+              )),
+          'velocity_range':
+          tf.train.Feature(bytes_list=tf.train.BytesList(
+              value=[get_val(record, 'velocity_range')]
+              )),
+          'diff_sequence':
+          tf.train.Feature(bytes_list=tf.train.BytesList(
+              value=[diff_ns.SerializeToString()]
+              )),
+          }))
+      writer.write(example.SerializeToString())
+
+
 def get_base_name_from_super_long_filename(super_long_filename):
   #super_long_filename = 'data/MAPS_predicted/_usr2_home_amuis_.other_speech_data_MAPS_ENSTDkAm_MUS_MAPS_MUS-bk_xmas1_ENSTDkAm.wav_label_from_frames.mid'
   name, ext = os.path.splitext(super_long_filename)
@@ -639,7 +714,8 @@ def main(unused_argv):
     # print(test_ids)
     # print("finish testing")
     # generate_train_set_resynth(test_ids)
-    generate_train_set_resynth(set())
+    print('Fixing {}/maps_config2_train_resynth.tfrecord'.format(FLAGS.output_dir))
+    fix_train_set_resynth(set())
     print("finish training")
     
 

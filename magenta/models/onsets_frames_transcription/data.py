@@ -595,7 +595,7 @@ def _provide_data_resynth(input_tensors, truncated_length, hparams):
       'velocities':
           tf.reshape(velocities, (truncated_length, constants.MIDI_PITCHES)),
       'filenames': filename,
-      'diff_note_sequences': truncated_diff_note_sequence,
+      'note_sequences': truncated_diff_note_sequence,
       'orig_note_sequences': truncated_orig_note_sequence,
       'resynth_note_sequences': truncated_resynth_note_sequence,
   }

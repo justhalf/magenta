@@ -90,13 +90,14 @@ def run(hparams, run_dir):
         examples_path=FLAGS.examples_path,
         num_batches=FLAGS.eval_num_batches,
         hparams=hparams)
-  elif FLAGS.mode == 'train':
+  elif FLAGS.mode.startswith('train'):
     train_util.train(
         train_dir=train_dir,
         examples_path=FLAGS.examples_path,
         hparams=hparams,
         checkpoints_to_keep=FLAGS.checkpoints_to_keep,
-        num_steps=FLAGS.num_steps)
+        num_steps=FLAGS.num_steps,
+        mode=FLAGS.mode)
   else:
     raise ValueError('Invalid mode: {}'.format(FLAGS.mode))
 

@@ -35,6 +35,7 @@ from magenta.models.onsets_frames_transcription import infer_util
 from magenta.models.onsets_frames_transcription import model
 from magenta.music import midi_io
 from magenta.music import sequences_lib
+from magenta.protobuf import music_pb2
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -75,12 +76,22 @@ tf.app.flags.DEFINE_string(
     'log', 'INFO',
     'The threshold for what messages will be logged: '
     'DEBUG, INFO, WARN, ERROR, or FATAL.')
+tf.app.flags.DEFINE_string(
+    'mode',
+    'train',
+    'Whether the model was standard (train) or resynth model (train_resynth)')
+tf.app.flags.DEFINE_string(
+    'share_conv',
+    'true',
+    'Whether the resynth model should share the convolution network')
 
 
-def model_inference(acoustic_checkpoint, hparams, examples_path, run_dir):
+def model_inference(acoustic_checkpoint, hparams, examples_path, run_dir, mode='train',
+                    share_conv=True):
   tf.logging.info('acoustic_checkpoint=%s', acoustic_checkpoint)
   tf.logging.info('examples_path=%s', examples_path)
   tf.logging.info('run_dir=%s', run_dir)
+  tf.logging.info('mode=%s', mode)
 
   with tf.Graph().as_default():
     num_dims = constants.MIDI_PITCHES
@@ -98,10 +109,15 @@ def model_inference(acoustic_checkpoint, hparams, examples_path, run_dir):
           examples=examples_path,
           hparams=hparams,
           is_training=False,
-          truncated_length=truncated_length)
+          truncated_length=truncated_length,
+          mode=mode)
 
-      _, _, data_labels, _, _ = model.get_model(
-          acoustic_data_provider, hparams, is_training=False)
+      if mode == 'train':
+        _, _, data_labels, _, _ = model.get_model(
+            acoustic_data_provider, hparams, is_training=False)
+      elif mode == 'train_resynth':
+        _, _, data_labels, _, _ = model.get_model_resynth(
+            acoustic_data_provider, hparams, is_training=False, share_conv=share_conv)
 
     # The checkpoints won't have the new scopes.
     acoustic_variables = {
@@ -151,14 +167,28 @@ def model_inference(acoustic_checkpoint, hparams, examples_path, run_dir):
       num_frames = []
       for unused_i in range(acoustic_data_provider.num_batches):
         start_time = time.time()
-        (labels, filenames, note_sequences, logits, onset_logits,
-         velocity_values) = sess.run([
-             data_labels,
-             acoustic_data_provider.filenames,
-             acoustic_data_provider.note_sequences,
-             frame_probs_flat,
-             onset_probs_flat,
-             velocity_values_flat])
+        if mode == 'train':
+          (labels, filenames, note_sequences, logits, onset_logits,
+           velocity_values) = sess.run([
+               data_labels,
+               acoustic_data_provider.filenames,
+               acoustic_data_provider.note_sequences,
+               frame_probs_flat,
+               onset_probs_flat,
+               velocity_values_flat])
+        elif mode == 'train_resynth':
+          (labels, filenames, note_sequences, logits, onset_logits,
+           velocity_values, orig_note_sequences, resynth_note_sequences) = sess.run([
+               data_labels,
+               acoustic_data_provider.filenames,
+               acoustic_data_provider.note_sequences,
+               frame_probs_flat,
+               onset_probs_flat,
+               velocity_values_flat,
+               acoustic_data_provider.orig_note_sequences,
+               acoustic_data_provider.resynth_note_sequences])
+        else:
+          raise ValueError('Mode {} not recognized'.format(mode))
         # We expect these all to be length 1 because batch size is 1.
         assert len(filenames) == len(note_sequences) == 1
         # These should be the same length and have been flattened.
@@ -189,26 +219,29 @@ def model_inference(acoustic_checkpoint, hparams, examples_path, run_dir):
             np.sum(num_frames) / np.sum(infer_times))
 
         tf.logging.info('Scoring sequence %s', filenames[0])
-        sequence_label = infer_util.score_sequence(
-            sess,
-            global_step_increment,
-            summary_op,
-            summary_writer,
-            metrics_to_updates,
-            metric_note_precision,
-            metric_note_recall,
-            metric_note_f1,
-            metric_note_precision_with_offsets,
-            metric_note_recall_with_offsets,
-            metric_note_f1_with_offsets,
-            metric_frame_labels,
-            metric_frame_predictions,
-            frame_labels=labels,
-            sequence_prediction=sequence_prediction,
-            frames_per_second=data.hparams_frames_per_second(hparams),
-            note_sequence_str_label=note_sequences[0],
-            min_duration_ms=FLAGS.min_note_duration_ms,
-            sequence_id=filenames[0])
+        try:
+          sequence_label = infer_util.score_sequence(
+              sess,
+              global_step_increment,
+              summary_op,
+              summary_writer,
+              metrics_to_updates,
+              metric_note_precision,
+              metric_note_recall,
+              metric_note_f1,
+              metric_note_precision_with_offsets,
+              metric_note_recall_with_offsets,
+              metric_note_f1_with_offsets,
+              metric_frame_labels,
+              metric_frame_predictions,
+              frame_labels=labels,
+              sequence_prediction=sequence_prediction,
+              frames_per_second=data.hparams_frames_per_second(hparams),
+              note_sequence_str_label=note_sequences[0],
+              min_duration_ms=FLAGS.min_note_duration_ms,
+              sequence_id=filenames[0])
+        except:
+          sequence_label = music_pb2.NoteSequence.FromString(note_sequences[0])
 
         # Make filenames UNIX-friendly.
         filename = filenames[0].replace('/', '_').replace(':', '.')
@@ -271,11 +304,18 @@ def main(unused_argv):
 
   tf.gfile.MakeDirs(run_dir)
 
+  if FLAGS.share_conv in ['true', 'True', True]:
+    share_conv = True
+  else:
+    share_conv = False
+
   model_inference(
       acoustic_checkpoint=acoustic_checkpoint,
       hparams=hparams,
       examples_path=FLAGS.examples_path,
-      run_dir=run_dir)
+      run_dir=run_dir,
+      mode=FLAGS.mode,
+      share_conv=share_conv)
 
 
 def console_entry_point():

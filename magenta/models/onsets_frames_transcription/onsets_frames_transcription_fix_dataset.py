@@ -690,7 +690,7 @@ def difference_note_sequence(gold_ns, silver_ns):
   missing_notes = [ref_notes[element] for element in ref_idx if element not in not_missed_ref_idx]
 
   sequence = copy.deepcopy(gold_ns)
-  del gold_ns.notes[:]
+  del sequence.notes[:]
   for missing_note in missing_notes:
     note = sequence.notes.add()
     note.start_time = missing_note.start_time

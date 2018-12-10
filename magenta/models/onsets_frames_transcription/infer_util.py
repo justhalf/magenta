@@ -218,7 +218,8 @@ def score_sequence(session, global_step_increment, summary_op, summary_writer,
                    metric_note_f1_with_offsets, metric_frame_labels,
                    metric_frame_predictions, frame_labels, sequence_prediction,
                    frames_per_second, note_sequence_str_label, min_duration_ms,
-                   sequence_id):
+                   sequence_id, orig_note_sequence_str=None,
+                   resynth_note_sequence_str=None):
   """Calculate metrics on the inferred sequence."""
   est_intervals, est_pitches = sequence_to_valued_intervals(
       sequence_prediction,
@@ -228,6 +229,11 @@ def score_sequence(session, global_step_increment, summary_op, summary_writer,
   ref_intervals, ref_pitches = sequence_to_valued_intervals(
       sequence_label,
       min_duration_ms=min_duration_ms)
+
+  if orig_note_sequence_str is not None:
+    orig_sequence = music_pb2.NoteSequence.FromString(orig_note_sequence_str)
+    resynth_sequence = music_pb2.NoteSequence.FromString(resynth_note_sequence_str)
+
 
   sequence_note_precision, sequence_note_recall, sequence_note_f1, _ = (
       mir_eval.transcription.precision_recall_f1_overlap(

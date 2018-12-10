@@ -27,6 +27,7 @@ import math
 import os
 import re
 import sys
+import copy
 
 import librosa
 import numpy as np
@@ -454,7 +455,10 @@ def generate_train_set_resynth(exclude_ids):
         new_resynth_ns = sequences_lib.extract_subsequence(resynth_ns, start, end)
         new_resynth_wav_data = audio_io.crop_wav_data(resynth_wav_data, FLAGS.sample_rate,
                                               start, end - start)
-        new_diff_ns = difference_note_sequence(new_orig_ns, new_resynth_ns)
+        try:
+          new_diff_ns = difference_note_sequence(new_orig_ns, new_resynth_ns)
+        except ValueError:
+          continue
         example = tf.train.Example(features=tf.train.Features(feature={
             'id':
             tf.train.Feature(bytes_list=tf.train.BytesList(
@@ -601,16 +605,20 @@ def difference_note_sequence(gold_ns, silver_ns):
   pred_intervals, pred_pitches, pred_notes = sequence_to_valued_intervals_notes(silver_ns, 0)
   #https://craffel.github.io/mir_eval/#mir_eval.transcription.match_notes
   # paired_idx is a list of tuple (ref_idx, pred_idx)
-  paired_idx = match_notes(ref_intervals, pretty_midi.note_number_to_hz(ref_pitches),
-                           pred_intervals, pretty_midi.note_number_to_hz(pred_pitches),
-                           offset_ratio=None)
+  try:
+      paired_idx = match_notes(ref_intervals, pretty_midi.note_number_to_hz(ref_pitches),
+                               pred_intervals, pretty_midi.note_number_to_hz(pred_pitches),
+                               offset_ratio=None)
+  except:
+      raise ValueError('Empty note sequence')
 
   ref_idx = range(len(ref_intervals))
   not_missed_ref_idx = [i[0] for i in paired_idx]
 
   missing_notes = [ref_notes[element] for element in ref_idx if element not in not_missed_ref_idx]
 
-  sequence = music_pb2.NoteSequence()
+  sequence = copy.deepcopy(gold_ns)
+  del sequence.notes[:]
   for missing_note in missing_notes:
     note = sequence.notes.add()
     note.start_time = missing_note.start_time

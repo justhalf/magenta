@@ -801,7 +801,8 @@ def main(unused_argv):
                                      'maps_config2_train_resynth_old.tfrecord')
     train_output_name = os.path.join(FLAGS.output_dir,
                                      'maps_config2_train_resynth.tfrecord')
-    fix_train_set_resynth(train_input_name, train_output_name)
+    #fix_train_set_resynth(train_input_name, train_output_name)
+    cv_train_set_resynth(train_input_name, train_output_name)
     print("finish training")
     
 

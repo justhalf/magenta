@@ -637,16 +637,16 @@ def cv_train_set_resynth(input_name, output_name):
   output_dir, output_name = os.path.split(output_name)
 
   cv_list = [559, 559, 558, 558, 559]
-  writer_1_train = tf.python_io.TFRecordWriter(output_dir + "cv1_train_"+output_name)
-  writer_1_test = tf.python_io.TFRecordWriter(output_dir + "cv1_test_"+output_name)
-  writer_2_train = tf.python_io.TFRecordWriter(output_dir + "cv2_train_"+output_name)
-  writer_2_test = tf.python_io.TFRecordWriter(output_dir + "cv2_test_"+output_name)
-  writer_3_train = tf.python_io.TFRecordWriter(output_dir + "cv3_train_"+output_name)
-  writer_3_test = tf.python_io.TFRecordWriter(output_dir + "cv3_test_"+output_name)
-  writer_4_train = tf.python_io.TFRecordWriter(output_dir + "cv4_train_"+output_name)
-  writer_4_test = tf.python_io.TFRecordWriter(output_dir + "cv4_test_"+output_name)
-  writer_5_train = tf.python_io.TFRecordWriter(output_dir + "cv5_train_"+output_name)
-  writer_5_test = tf.python_io.TFRecordWriter(output_dir + "cv5_test_"+output_name)
+  writer_1_train = tf.python_io.TFRecordWriter(output_dir + "/cv1_train_"+output_name)
+  writer_1_test = tf.python_io.TFRecordWriter(output_dir + "/cv1_test_"+output_name)
+  writer_2_train = tf.python_io.TFRecordWriter(output_dir + "/cv2_train_"+output_name)
+  writer_2_test = tf.python_io.TFRecordWriter(output_dir + "/cv2_test_"+output_name)
+  writer_3_train = tf.python_io.TFRecordWriter(output_dir + "/cv3_train_"+output_name)
+  writer_3_test = tf.python_io.TFRecordWriter(output_dir + "/cv3_test_"+output_name)
+  writer_4_train = tf.python_io.TFRecordWriter(output_dir + "/cv4_train_"+output_name)
+  writer_4_test = tf.python_io.TFRecordWriter(output_dir + "/cv4_test_"+output_name)
+  writer_5_train = tf.python_io.TFRecordWriter(output_dir + "/cv5_train_"+output_name)
+  writer_5_test = tf.python_io.TFRecordWriter(output_dir + "/cv5_test_"+output_name)
 
   index = 0
   for example in example_list:

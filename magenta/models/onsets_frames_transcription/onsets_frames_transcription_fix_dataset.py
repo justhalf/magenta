@@ -582,8 +582,7 @@ def cv_train_set_resynth(input_name, output_name):
       data_counter += 1
 
   print(data_counter)
-  return None 
-  
+
   example_list = []
   for string_record in tf.python_io.tf_record_iterator(input_name):
     record = tf.train.Example()

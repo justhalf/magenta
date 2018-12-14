@@ -651,7 +651,7 @@ def cv_train_set_resynth(input_name, output_name):
 
   index = 0
   for example in example_list:
-    if index < 559
+    if index < 559:
       writer_1_train.write(example.SerializeToString())
       writer_2_train.write(example.SerializeToString())
       writer_3_train.write(example.SerializeToString())

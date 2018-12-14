@@ -28,6 +28,7 @@ import os
 import re
 import sys
 import copy
+import random
 
 import librosa
 import numpy as np
@@ -582,57 +583,105 @@ def cv_train_set_resynth(input_name, output_name):
 
   print(data_counter)
   return None 
-  '''
-  with tf.python_io.TFRecordWriter(output_name) as writer:
-    for string_record in tf.python_io.tf_record_iterator(input_name):
-      record = tf.train.Example()
-      record.ParseFromString(string_record)
-      path = get_val(record, 'id')
-      if path != prev_path:
-        counter = 0
-        print(path)
-        prev_path = path
-      counter += 1
-      # print('part {}'.format(counter))
-      orig_ns = music_pb2.NoteSequence.FromString(get_val(record, 'orig_sequence'))
-      resynth_ns = music_pb2.NoteSequence.FromString(get_val(record, 'resynth_sequence'))
-      # diff_ns = music_pb2.NoteSequence.FromString(get_val(record, 'diff_sequence'))
-      try:
-          new_diff_ns = difference_note_sequence(orig_ns, resynth_ns)
-      except ValueError:
-          continue
-      example = tf.train.Example(features=tf.train.Features(feature={
-          'id':
-          tf.train.Feature(bytes_list=tf.train.BytesList(
-              value=[path]
-              )),
-          'orig_sequence':
-          tf.train.Feature(bytes_list=tf.train.BytesList(
-              value=[orig_ns.SerializeToString()]
-              )),
-          'resynth_sequence':
-          tf.train.Feature(bytes_list=tf.train.BytesList(
-              value=[resynth_ns.SerializeToString()]
-              )),
-          'orig_audio':
-          tf.train.Feature(bytes_list=tf.train.BytesList(
-              value=[get_val(record, 'orig_audio')]
-              )),
-          'resynth_audio':
-          tf.train.Feature(bytes_list=tf.train.BytesList(
-              value=[get_val(record, 'resynth_audio')]
-              )),
-          'velocity_range':
-          tf.train.Feature(bytes_list=tf.train.BytesList(
-              value=[get_val(record, 'velocity_range')]
-              )),
-          'diff_sequence':
-          tf.train.Feature(bytes_list=tf.train.BytesList(
-              value=[new_diff_ns.SerializeToString()]
-              )),
-          }))
-      writer.write(example.SerializeToString())
-  '''
+  
+  example_list = []
+  for string_record in tf.python_io.tf_record_iterator(input_name):
+    record = tf.train.Example()
+    record.ParseFromString(string_record)
+    path = get_val(record, 'id')
+    if path != prev_path:
+      counter = 0
+      print(path)
+      prev_path = path
+    counter += 1
+    # print('part {}'.format(counter))
+    orig_ns = music_pb2.NoteSequence.FromString(get_val(record, 'orig_sequence'))
+    resynth_ns = music_pb2.NoteSequence.FromString(get_val(record, 'resynth_sequence'))
+    # diff_ns = music_pb2.NoteSequence.FromString(get_val(record, 'diff_sequence'))
+    try:
+        new_diff_ns = difference_note_sequence(orig_ns, resynth_ns)
+    except ValueError:
+        continue
+    example = tf.train.Example(features=tf.train.Features(feature={
+        'id':
+        tf.train.Feature(bytes_list=tf.train.BytesList(
+            value=[path]
+            )),
+        'orig_sequence':
+        tf.train.Feature(bytes_list=tf.train.BytesList(
+            value=[orig_ns.SerializeToString()]
+            )),
+        'resynth_sequence':
+        tf.train.Feature(bytes_list=tf.train.BytesList(
+            value=[resynth_ns.SerializeToString()]
+            )),
+        'orig_audio':
+        tf.train.Feature(bytes_list=tf.train.BytesList(
+            value=[get_val(record, 'orig_audio')]
+            )),
+        'resynth_audio':
+        tf.train.Feature(bytes_list=tf.train.BytesList(
+            value=[get_val(record, 'resynth_audio')]
+            )),
+        'velocity_range':
+        tf.train.Feature(bytes_list=tf.train.BytesList(
+            value=[get_val(record, 'velocity_range')]
+            )),
+        'diff_sequence':
+        tf.train.Feature(bytes_list=tf.train.BytesList(
+            value=[new_diff_ns.SerializeToString()]
+            )),
+        }))
+    example_list.append(example)
+
+  random.shuffle(example_list)
+  output_dir, output_name = os.path.split(output_name)
+
+  cv_list = [559, 559, 558, 558, 559]
+  writer_1_train = tf.python_io.TFRecordWriter(output_dir + "cv1_train_"+output_name)
+  writer_1_test = tf.python_io.TFRecordWriter(output_dir + "cv1_test_"+output_name)
+  writer_2_train = tf.python_io.TFRecordWriter(output_dir + "cv2_train_"+output_name)
+  writer_2_test = tf.python_io.TFRecordWriter(output_dir + "cv2_test_"+output_name)
+  writer_3_train = tf.python_io.TFRecordWriter(output_dir + "cv3_train_"+output_name)
+  writer_3_test = tf.python_io.TFRecordWriter(output_dir + "cv3_test_"+output_name)
+  writer_4_train = tf.python_io.TFRecordWriter(output_dir + "cv4_train_"+output_name)
+  writer_4_test = tf.python_io.TFRecordWriter(output_dir + "cv4_test_"+output_name)
+  writer_5_train = tf.python_io.TFRecordWriter(output_dir + "cv5_train_"+output_name)
+  writer_5_test = tf.python_io.TFRecordWriter(output_dir + "cv5_test_"+output_name)
+
+  index = 0
+  for example in example_list:
+    if index < 559
+      writer_1_train.write(example.SerializeToString())
+      writer_2_train.write(example.SerializeToString())
+      writer_3_train.write(example.SerializeToString())
+      writer_4_train.write(example.SerializeToString())
+      writer_5_test.write(example.SerializeToString())
+    elif index < (559+559):
+      writer_1_train.write(example.SerializeToString())
+      writer_2_train.write(example.SerializeToString())
+      writer_3_train.write(example.SerializeToString())
+      writer_4_test.write(example.SerializeToString())
+      writer_5_train.write(example.SerializeToString())
+    elif index < (559+559+558):
+      writer_1_train.write(example.SerializeToString())
+      writer_2_train.write(example.SerializeToString())
+      writer_3_test.write(example.SerializeToString())
+      writer_4_train.write(example.SerializeToString())
+      writer_5_train.write(example.SerializeToString())
+    elif index < (559+559+558+558):
+      writer_1_train.write(example.SerializeToString())
+      writer_2_test.write(example.SerializeToString())
+      writer_3_train.write(example.SerializeToString())
+      writer_4_train.write(example.SerializeToString())
+      writer_5_train.write(example.SerializeToString())
+    else:
+      writer_1_test.write(example.SerializeToString())
+      writer_2_train.write(example.SerializeToString())
+      writer_3_train.write(example.SerializeToString())
+      writer_4_train.write(example.SerializeToString())
+      writer_5_train.write(example.SerializeToString())
+    index += 1
 
 def get_base_name_from_super_long_filename(super_long_filename):
   #super_long_filename = 'data/MAPS_predicted/_usr2_home_amuis_.other_speech_data_MAPS_ENSTDkAm_MUS_MAPS_MUS-bk_xmas1_ENSTDkAm.wav_label_from_frames.mid'

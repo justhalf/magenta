@@ -564,6 +564,107 @@ def fix_train_set_resynth(input_name, output_name):
       writer.write(example.SerializeToString())
 
 
+def cv_train_set_original(input_name, output_name):
+  """Generate the train TFRecord."""
+  if not os.path.exists(input_name):
+    print('Path {} does not exist'.format(input_name))
+    sys.exit(1)
+  #print("train output name: " + str(train_output_name))
+  def get_val(record, field):
+    return record.features.feature[field].bytes_list.value[0]
+  prev_path = ''
+  counter = 0
+
+  #count how many lines in input_name
+  data_counter = 0
+  with tf.python_io.TFRecordWriter(output_name) as writer:
+    for string_record in tf.python_io.tf_record_iterator(input_name):
+      data_counter += 1
+
+  print(data_counter)
+
+  example_list = []
+  for string_record in tf.python_io.tf_record_iterator(input_name):
+    record = tf.train.Example()
+    record.ParseFromString(string_record)
+    path = get_val(record, 'id')
+    if path != prev_path:
+      counter = 0
+      print(path)
+      prev_path = path
+    counter += 1
+    # print('part {}'.format(counter))
+    orig_ns = music_pb2.NoteSequence.FromString(get_val(record, 'sequence'))
+
+    example = tf.train.Example(features=tf.train.Features(feature={
+        'id':
+        tf.train.Feature(bytes_list=tf.train.BytesList(
+            value=[path]
+            )),
+        'sequence':
+        tf.train.Feature(bytes_list=tf.train.BytesList(
+            value=[orig_ns.SerializeToString()]
+            )),
+        'audio':
+        tf.train.Feature(bytes_list=tf.train.BytesList(
+            value=[get_val(record, 'audio')]
+            )),
+        'velocity_range':
+        tf.train.Feature(bytes_list=tf.train.BytesList(
+            value=[get_val(record, 'velocity_range')]
+            )),
+        }))
+    example_list.append(example)
+
+  random.shuffle(example_list)
+  output_dir, output_name = os.path.split(output_name)
+
+  cv_list = [559, 559, 558, 558, 559]
+  writer_1_train = tf.python_io.TFRecordWriter(output_dir + "/cv1_train_"+output_name)
+  writer_1_test = tf.python_io.TFRecordWriter(output_dir + "/cv1_test_"+output_name)
+  writer_2_train = tf.python_io.TFRecordWriter(output_dir + "/cv2_train_"+output_name)
+  writer_2_test = tf.python_io.TFRecordWriter(output_dir + "/cv2_test_"+output_name)
+  writer_3_train = tf.python_io.TFRecordWriter(output_dir + "/cv3_train_"+output_name)
+  writer_3_test = tf.python_io.TFRecordWriter(output_dir + "/cv3_test_"+output_name)
+  writer_4_train = tf.python_io.TFRecordWriter(output_dir + "/cv4_train_"+output_name)
+  writer_4_test = tf.python_io.TFRecordWriter(output_dir + "/cv4_test_"+output_name)
+  writer_5_train = tf.python_io.TFRecordWriter(output_dir + "/cv5_train_"+output_name)
+  writer_5_test = tf.python_io.TFRecordWriter(output_dir + "/cv5_test_"+output_name)
+
+  index = 0
+  for example in example_list:
+    if index < 559:
+      writer_1_train.write(example.SerializeToString())
+      writer_2_train.write(example.SerializeToString())
+      writer_3_train.write(example.SerializeToString())
+      writer_4_train.write(example.SerializeToString())
+      writer_5_test.write(example.SerializeToString())
+    elif index < (559+559):
+      writer_1_train.write(example.SerializeToString())
+      writer_2_train.write(example.SerializeToString())
+      writer_3_train.write(example.SerializeToString())
+      writer_4_test.write(example.SerializeToString())
+      writer_5_train.write(example.SerializeToString())
+    elif index < (559+559+558):
+      writer_1_train.write(example.SerializeToString())
+      writer_2_train.write(example.SerializeToString())
+      writer_3_test.write(example.SerializeToString())
+      writer_4_train.write(example.SerializeToString())
+      writer_5_train.write(example.SerializeToString())
+    elif index < (559+559+558+558):
+      writer_1_train.write(example.SerializeToString())
+      writer_2_test.write(example.SerializeToString())
+      writer_3_train.write(example.SerializeToString())
+      writer_4_train.write(example.SerializeToString())
+      writer_5_train.write(example.SerializeToString())
+    else:
+      writer_1_test.write(example.SerializeToString())
+      writer_2_train.write(example.SerializeToString())
+      writer_3_train.write(example.SerializeToString())
+      writer_4_train.write(example.SerializeToString())
+      writer_5_train.write(example.SerializeToString())
+    index += 1
+
 def cv_train_set_resynth(input_name, output_name):
   """Generate the train TFRecord."""
   if not os.path.exists(input_name):

@@ -939,17 +939,17 @@ def main(unused_argv):
     # print(test_ids)
     # print("finish testing")
     # generate_train_set_resynth(test_ids)
-    print('Fixing {}/maps_config2_test_resynth.tfrecord'.format(FLAGS.output_dir))
+    print('Fixing {}/maps_config2_test.tfrecord'.format(FLAGS.output_dir))
     test_input_name = os.path.join(FLAGS.output_dir,
-                                     'maps_config2_test_resynth_old.tfrecord')
+                                     'maps_config2_test_old.tfrecord')
     test_output_name = os.path.join(FLAGS.output_dir,
-                                     'maps_config2_test_resynth.tfrecord')
+                                     'maps_config2_test.tfrecord')
     fix_train_set_resynth(test_input_name, test_output_name)
-    print('Fixing {}/maps_config2_train_resynth.tfrecord'.format(FLAGS.output_dir))
+    print('Fixing {}/maps_config2_train.tfrecord'.format(FLAGS.output_dir))
     train_input_name = os.path.join(FLAGS.output_dir,
-                                     'maps_config2_train_resynth_old.tfrecord')
+                                     'maps_config2_train_old.tfrecord')
     train_output_name = os.path.join(FLAGS.output_dir,
-                                     'maps_config2_train_resynth.tfrecord')
+                                     'maps_config2_train.tfrecord')
     #fix_train_set_resynth(train_input_name, train_output_name)
     #cv_train_set_resynth(train_input_name, train_output_name)
     cv_train_set_original(train_input_name, train_output_name)

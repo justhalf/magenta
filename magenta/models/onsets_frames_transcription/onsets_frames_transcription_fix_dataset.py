@@ -939,12 +939,12 @@ def main(unused_argv):
     # print(test_ids)
     # print("finish testing")
     # generate_train_set_resynth(test_ids)
-    print('Fixing {}/maps_config2_test.tfrecord'.format(FLAGS.output_dir))
-    test_input_name = os.path.join(FLAGS.output_dir,
-                                     'maps_config2_test_old.tfrecord')
-    test_output_name = os.path.join(FLAGS.output_dir,
-                                     'maps_config2_test.tfrecord')
-    fix_train_set_resynth(test_input_name, test_output_name)
+    # print('Fixing {}/maps_config2_test.tfrecord'.format(FLAGS.output_dir))
+    # test_input_name = os.path.join(FLAGS.output_dir,
+    #                                  'maps_config2_test_old.tfrecord')
+    # test_output_name = os.path.join(FLAGS.output_dir,
+    #                                  'maps_config2_test.tfrecord')
+    # fix_train_set_resynth(test_input_name, test_output_name)
     print('Fixing {}/maps_config2_train.tfrecord'.format(FLAGS.output_dir))
     train_input_name = os.path.join(FLAGS.output_dir,
                                      'maps_config2_train_old.tfrecord')

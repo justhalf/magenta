@@ -951,7 +951,8 @@ def main(unused_argv):
     train_output_name = os.path.join(FLAGS.output_dir,
                                      'maps_config2_train_resynth.tfrecord')
     #fix_train_set_resynth(train_input_name, train_output_name)
-    cv_train_set_resynth(train_input_name, train_output_name)
+    #cv_train_set_resynth(train_input_name, train_output_name)
+    cv_train_set_original(train_input_name, train_output_name)
     print("finish training")
     
 
